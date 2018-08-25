@@ -13,5 +13,10 @@
         <Button x:Name="Button_Submit" Content="Submit" HorizontalAlignment="Left" Margin="194,127,0,0" VerticalAlignment="Top" Width="75"/>
         <TextBox x:Name="BodyText" HorizontalAlignment="Left" Height="46" Margin="10,155,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="258"/>
         <TextBox x:Name="NameText" HorizontalAlignment="Left" Height="23" Margin="10,127,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120"/>
+        <RichTextBox x:Name="Log" HorizontalAlignment="Left" Height="112" Margin="10,10,0,0" VerticalAlignment="Top" Width="258">
+            <FlowDocument>
+                <Paragraph/>
+            </FlowDocument>
+        </RichTextBox>
     </Grid>
 </Window>

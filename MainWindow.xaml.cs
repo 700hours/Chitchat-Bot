@@ -43,8 +43,6 @@ namespace ChitchatBot
         }
 
         public static MainWindow Base;
-        private EventLog Log;
-
         public string
             user, auth, channel;
         public string botPath;
@@ -52,8 +50,6 @@ namespace ChitchatBot
         public static TwitchClient client;
         private void On_Load(object sender, RoutedEventArgs e)
         {
-            Log = EventLog.Log;
-
             string path = "Users";
             botPath = "Bot_" + user + @"\";
             if (!Directory.Exists(path))
@@ -150,19 +146,36 @@ namespace ChitchatBot
                 string delCmd = "!delcmd";
                 string taskMsg = "!task";
                 string delTask = "!deltask";
+                string help = "!help";
+                if (message.StartsWith(help))
+                {
+                    string cmdText = "[Command syntax] !edit <name> <message> to add, !edit <name> to modify, !delcmd to remove";
+                    string taskText = "[Task syntax] !task #<frequency in minutes> #<send chance per frequency> $<name> <message>, !deltask <ID>/<name>";
+                    client.SendWhisper(e.ChatMessage.Username, cmdText);
+                    client.SendWhisper(e.ChatMessage.Username, taskText);
+                }
                 if (message.StartsWith(editCmd))
                 {
                     int startIndex = editCmd.Length + 1;
                     string substring = message.Substring(startIndex);
-                    int length = Math.Max(startIndex - substring.IndexOf(' '), substring.IndexOf(' ') - startIndex);
-                    WriteToFile(cmdsPath, ';', message.Substring(startIndex, length), substring.Substring(length), false);
+                    string name = substring.Substring(0, substring.IndexOf(' '));
+                    WriteToFile(cmdsPath, ';', name, substring.Substring(name.Length + 1), false);
+
+                    string text;
+                    if (FileCheck(cmdsPath, ';', name))
+                        text = "!" + name + " command modified";
+                    else
+                        text = "!" + name + "command created";
+                    client.SendMessage(channel, text);
                 }
                 if (message.StartsWith(delCmd))
                 {
                     int startIndex = delCmd.Length + 1;
-                    string substring = message.Substring(startIndex);
-                    int length = Math.Max(startIndex - substring.IndexOf(' '), substring.IndexOf(' ') - startIndex);
-                    WriteToFile(cmdsPath, ';', message.Substring(startIndex, length), string.Empty, false);
+                    string name = message.Substring(startIndex);
+                    WriteToFile(cmdsPath, ';', name, string.Empty, true);
+
+                    string text = "Command !" + name + " removed";
+                    client.SendMessage(channel, text);
                 }
                 if (message.StartsWith(taskMsg))
                 {
@@ -181,14 +194,17 @@ namespace ChitchatBot
                 }
                 if (message.StartsWith(delTask))
                 {
-                    string ID = message.Substring(delTask.Length + 1);
+                    string name = message.Substring(delTask.Length + 1);
                     int id;
-                    int.TryParse(ID, out id);
+                    int.TryParse(name, out id);
                     foreach (TimedMessage task in TimedMsgs)
                     {
-                        if (task != null && (task.name == ID || task.ID == id))
+                        if (task != null && (task.name == name || task.ID == id))
                         {
                             task.Dispose();
+
+                            string text = "Task ID: " + id + " removed";
+                            client.SendMessage(channel, text);
                             break;
                         }
                     }
@@ -209,22 +225,20 @@ namespace ChitchatBot
 
         private void LogText(MessageType type)
         {
-            if (Log == null)
-                Log = new EventLog();
             /*
             switch (type)
             {
                 case MessageType.Error:
-                    Log.LogOutput.AppendText(connectErr);
+                    Log.AppendText(connectErr);
                     break;
                 case MessageType.Setup:
-                    Log.LogOutput.AppendText(setupMsg);
+                    Log.AppendText(setupMsg);
                     break;
                 case MessageType.NewCmd:
-                    Log.LogOutput.AppendText(newCmd);
+                    Log.AppendText(newCmd);
                     break;
                 case MessageType.Edit:
-                    Log.LogOutput.AppendText(editCmd);
+                    Log.AppendText(editCmd);
                     break;
                 default:
                     break;
@@ -301,7 +315,7 @@ namespace ChitchatBot
                 using (StreamWriter sw = new StreamWriter(file))
                     sw.Write(";");
 
-            string command = "!" + name + message;
+            string command = "!" + name + " " + message;
             string[] lines;
             using (StreamReader sr = new StreamReader(file))
                 lines = sr.ReadToEnd().Split(separator);
@@ -379,7 +393,10 @@ namespace ChitchatBot
             foreach (string s in lines)
             {
                 if (s.Contains(name))
-                    return s.Substring(name.Length + 1);
+                    if (s.Contains("\n"))
+                        return s.Substring(s.IndexOf('\n') + name.Length + 2);
+                    else
+                        return s.Substring(name.Length + 1);
             }
             return string.Empty;
         }
@@ -422,16 +439,19 @@ namespace ChitchatBot
                     break;
                 }
             }
-            MainWindow.TimedMsgs[num] = new TimedMessage();
             foreach (TimedMessage task in MainWindow.TimedMsgs)
             {
                 if (task != null && task.name == name)
                 {
                     num = task.ID;
                     task.Dispose();
+
+                    string text = "Task ID: " + task.ID + " replaced";
+                    Base.Log.AppendText(text + "\n");
                     break;
                 }
             }
+            MainWindow.TimedMsgs[num] = new TimedMessage();
             MainWindow.TimedMsgs[num].name = name;
             MainWindow.TimedMsgs[num].message = message;
             MainWindow.TimedMsgs[num].frequency = frequency;
