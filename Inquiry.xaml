@@ -1,0 +1,15 @@
+﻿<Window x:Class="ChitchatBot.Inquiry"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:ChitchatBot"
+        mc:Ignorable="d"
+        Title="Word Supplements" Height="298" Width="300">
+    <Grid>
+        <Label Content="Words:" HorizontalAlignment="Left" Margin="10,180,0,0" VerticalAlignment="Top"/>
+        <Label Content="Work:" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0"/>
+        <TextBlock x:Name="Block_Work" HorizontalAlignment="Left" Margin="10,41,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Height="134" Width="272"/>
+        <TextBlock x:Name="Block_Verbs" HorizontalAlignment="Left" Margin="10,211,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Height="50" Width="272"/>
+    </Grid>
+</Window>

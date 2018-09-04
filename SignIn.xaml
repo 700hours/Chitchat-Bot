@@ -10,7 +10,7 @@
         <Grid.ColumnDefinitions>
             <ColumnDefinition/>
         </Grid.ColumnDefinitions>
-        <Rectangle Fill="#FFE0E0E0" HorizontalAlignment="Left" Height="141" Stroke="#00000000" VerticalAlignment="Top" Width="90"/>
+        <Rectangle Fill="#FFE0E0E0" HorizontalAlignment="Left" Height="143" Stroke="#00000000" VerticalAlignment="Top" Width="90"/>
         <TextBox x:Name="Username" HorizontalAlignment="Left" Height="23" Margin="95,14,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="172" RenderTransformOrigin="0.332,0.556"/>
         <TextBox x:Name="Channel" HorizontalAlignment="Left" Height="23" Margin="95,45,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="172"/>
         <Label Content="Bot Name" HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" Height="26" Width="63"/>

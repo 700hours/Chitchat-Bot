@@ -35,7 +35,6 @@ namespace ChitchatBot
         private MainWindow Base;
         private void On_Load(object sender, RoutedEventArgs e)
         {
-            Log = EventLog.Log;
             Base = MainWindow.Base;
 
             if (!File.Exists(path))
@@ -59,26 +58,10 @@ namespace ChitchatBot
         }
         private void Button_Click(object sender, RoutedEventArgs e)
         {
-            if (Log == null || !Log.IsActive)
-            {
-                Log = new EventLog();
-                Log.Show();
-            }
             bool valid = Username.Text.Length > 3 && Channel.Text.Length > 3 && Auth.Text.Length > 20 && Auth.Text.ToLower().Contains("oauth");
-
-            if (Username.Text.Length < 4)
-                Log.LogOutput.AppendText(usernameErr + "\n");
-            if (Channel.Text.Length < 4)
-                Log.LogOutput.AppendText(channelErr + "\n");
-            if (Auth.Text.Length < 20)
-                Log.LogOutput.AppendText(authErr + "\n");
-            if (!Auth.Text.ToLower().Contains("oauth"))
-                Log.LogOutput.AppendText(oauthErr + "\n");
 
             if (valid)
             {
-                Log.LogOutput.AppendText("Attempting to connect" + "\n");
-
                 Base.user = Username.Text;
                 Base.auth = Auth.Text;
                 Base.channel = Channel.Text;
@@ -86,6 +69,5 @@ namespace ChitchatBot
                 Close();
             }
         }
-
     }
 }

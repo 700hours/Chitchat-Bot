@@ -1,0 +1,32 @@
+﻿<Window x:Class="ChitchatBot.Preferences"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:ChitchatBot"
+        mc:Ignorable="d"
+        Title="Preferences" Height="422" Width="275" Loaded="On_Load" ResizeMode="CanMinimize" WindowStartupLocation="CenterOwner">
+    <Grid>
+        <Rectangle Fill="#FFE0E0E0" HorizontalAlignment="Left" Height="391" Stroke="#FFF4E0E0" VerticalAlignment="Top" Width="133"/>
+        <Label Content="Chat Functions" HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" Width="97" FontWeight="Bold"/>
+        <Label Content="Add/Modify:" HorizontalAlignment="Left" Margin="31,98,0,0" VerticalAlignment="Top"/>
+        <Label Content="Commands" HorizontalAlignment="Left" Margin="38,67,0,0" VerticalAlignment="Top" FontStyle="Italic"/>
+        <Label Content="Delete:" HorizontalAlignment="Left" Margin="60,129,0,0" VerticalAlignment="Top"/>
+        <Label Content="Scheduled Tasks" HorizontalAlignment="Left" Margin="13,160,0,0" VerticalAlignment="Top" FontStyle="Italic"/>
+        <Label Content="Add/Modify:" HorizontalAlignment="Left" Margin="31,191,0,0" VerticalAlignment="Top"/>
+        <Label Content="Delete:" HorizontalAlignment="Left" Margin="60,222,0,0" VerticalAlignment="Top"/>
+        <Label Content="Help/Info:" HorizontalAlignment="Left" Margin="44,41,0,0" VerticalAlignment="Top"/>
+        <Label Content="Misc" HorizontalAlignment="Left" Margin="74,253,0,0" VerticalAlignment="Top" FontStyle="Italic"/>
+        <Label Content="Word Submit:" HorizontalAlignment="Left" Margin="25,284,0,0" VerticalAlignment="Top"/>
+        <Label Content="Grant Permit:" HorizontalAlignment="Left" Margin="28,315,0,0" VerticalAlignment="Top"/>
+        <TextBox x:Name="Box5_Help" HorizontalAlignment="Left" Height="23" Margin="138,45,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120"/>
+        <TextBox x:Name="Box1_CmdsModify" HorizontalAlignment="Left" Height="23" Margin="138,102,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120"/>
+        <TextBox x:Name="Box2_CmdsDelete" HorizontalAlignment="Left" Height="23" Margin="138,133,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120"/>
+        <TextBox x:Name="Box3_TasksModify" HorizontalAlignment="Left" Height="23" Margin="138,195,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120"/>
+        <TextBox x:Name="Box4_TasksDelete" HorizontalAlignment="Left" Height="23" Margin="138,226,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120"/>
+        <TextBox x:Name="Box6_UserWord" HorizontalAlignment="Left" Height="23" Margin="138,288,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120"/>
+        <TextBox x:Name="Box7_UserPermit" HorizontalAlignment="Left" Height="23" Margin="138,319,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120"/>
+        <Button Content="Submit" HorizontalAlignment="Left" Margin="183,361,0,0" VerticalAlignment="Top" Width="75" Click="Button_Click"/>
+
+    </Grid>
+</Window>

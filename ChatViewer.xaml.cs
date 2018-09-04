@@ -15,24 +15,13 @@ using System.Windows.Shapes;
 namespace ChitchatBot
 {
     /// <summary>
-    /// Interaction logic for EventLog.xaml
+    /// Interaction logic for ChatViewer.xaml
     /// </summary>
-    public partial class EventLog : Window
+    public partial class ChatViewer : Window
     {
-        public static EventLog Log;
-        public EventLog()
+        public ChatViewer()
         {
             InitializeComponent();
-        }
-
-        private void On_Load(object sender, RoutedEventArgs e)
-        {
-            Log = this;
-            LogOutput.IsReadOnly = true;
-        }
-        private void Text_Update(object sender, TextChangedEventArgs e)
-        {
-            LogOutput.ScrollToEnd();
         }
     }
 }
