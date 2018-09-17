@@ -35,57 +35,51 @@ namespace ChitchatBot
         private MainWindow Base;
         private void On_Load(object sender, RoutedEventArgs e)
         {
-            Log = EventLog.Log;
             Base = MainWindow.Base;
-
+            string[] lines;
             if (!File.Exists(path))
             {
                 using (StreamWriter sw = new StreamWriter(path))
-                    sw.Write("bot_name channel_name bot_oauth");
+                    sw.Write("bot_name channel_name bot_oauth access_token");
             }
             else
             {
                 using (StreamReader sr = new StreamReader(@path))
                 {
-                    string[] lines = sr.ReadToEnd().Split(' ');
-                    if (lines.Length > 1)
+                    lines = sr.ReadToEnd().Split(' ');
+                    for (int i = 0; i < lines.Length; i++)
                     {
-                        Username.Text = lines[0];
-                        Channel.Text = lines[1];
-                        Auth.Text = lines[2];
+                        if (i == 0)
+                            Username.Text = lines[i];
+                        if (i == 1)
+                            Channel.Text = lines[i];
+                        if (i == 2)
+                            Auth.Text = lines[i];
+                        if (i == 3)
+                            Token.Text = lines[i];
                     }
                 }
             }
         }
         private void Button_Click(object sender, RoutedEventArgs e)
         {
-            if (Log == null || !Log.IsActive)
-            {
-                Log = new EventLog();
-                Log.Show();
-            }
-            bool valid = Username.Text.Length > 3 && Channel.Text.Length > 3 && Auth.Text.Length > 20 && Auth.Text.ToLower().Contains("oauth");
-
-            if (Username.Text.Length < 4)
-                Log.LogOutput.AppendText(usernameErr + "\n");
-            if (Channel.Text.Length < 4)
-                Log.LogOutput.AppendText(channelErr + "\n");
-            if (Auth.Text.Length < 20)
-                Log.LogOutput.AppendText(authErr + "\n");
-            if (!Auth.Text.ToLower().Contains("oauth"))
-                Log.LogOutput.AppendText(oauthErr + "\n");
+            bool valid = Username.Text.Length > 3 && Channel.Text.Length > 3 && Auth.Text.Length > 20 && Auth.Text.ToLower().Contains("oauth") && Token.Text.Length == 30;
 
             if (valid)
             {
-                Log.LogOutput.AppendText("Attempting to connect" + "\n");
-
                 Base.user = Username.Text;
                 Base.auth = Auth.Text;
                 Base.channel = Channel.Text;
+                Base.token = Token.Text;
+
+                using (StreamWriter sw = new StreamWriter(path))
+                    sw.Write(Base.user + " "
+                        + Base.channel + " "
+                        + Base.auth + " " 
+                        + Base.token);
 
                 Close();
             }
         }
-
     }
 }

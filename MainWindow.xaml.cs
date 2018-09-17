@@ -2,13 +2,16 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Speech.Synthesis;
 using System.Text;
 using System.Timers;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Documents;
+using System.Windows.Forms;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -17,12 +20,14 @@ using System.Windows.Shapes;
 
 using TwitchLib;
 using TwitchLib.Api;
+using TwitchLib.Api.Models;
 using TwitchLib.Client;
 using TwitchLib.Client.Enums;
 using TwitchLib.Client.Events;
 using TwitchLib.Client.Extensions;
 using TwitchLib.Client.Models;
 using TwitchLib.PubSub;
+using TwitchLib.PubSub.Events;
 
 namespace ChitchatBot
 {
@@ -43,23 +48,57 @@ namespace ChitchatBot
         }
 
         public static MainWindow Base;
-        private EventLog Log;
-
         public string
-            user, auth, channel;
+            user, auth, channel, token;
+        public string
+            channelID, channelAuth;
+        private string clientID = "eh5c6tkcr40gkvhg84eqda94hh11ns";
         public string botPath;
+        private string selected;
+        private string hlPath;
+        public string[] cmdsList;
+        public string[] userPref = new string[]
+        {
+            "!edit",
+            "!delcmd",
+            "!task",
+            "!deltask",
+            "!help",
+            "!choose",
+            "!permit"
+        };
+        private bool CanInteract = true;
+        private bool CanWhisper = true;
+        private bool ViewChat;
         public static TimedMessage[] TimedMsgs = new TimedMessage[100];
+        private System.Timers.Timer Elapsed;
         public static TwitchClient client;
+        public static TwitchAPI api;
         private void On_Load(object sender, RoutedEventArgs e)
         {
-            Log = EventLog.Log;
-
             string path = "Users";
             botPath = "Bot_" + user + @"\";
             if (!Directory.Exists(path))
                 Directory.CreateDirectory(path);
             if (!Directory.Exists("Bot_" + user))
                 Directory.CreateDirectory("Bot_" + user);
+
+            path = botPath + "Preferences.txt";
+            FileStart(path, WriteType.Pref);
+            hlPath = botPath + "Highlights" + "_" + DateTime.Today.Month + "-" + DateTime.Today.Day + "-" + DateTime.Today.Year + ".txt";
+            FileStart(hlPath, WriteType.Data);
+            string[] lines;
+
+            using (StreamReader sw = new StreamReader(path))
+                lines = sw.ReadToEnd().Split(';');
+            userPref = lines;
+
+            UpdateList();
+        }
+        private void On_Closed(object sender, EventArgs e)
+        {
+            if (storyThread != null)
+                storyThread.Abort();
         }
 
         public void TwitchBot(string user, string auth, string channel)
@@ -70,13 +109,29 @@ namespace ChitchatBot
 
             client.Initialize(info, channel);
 
+            client.AddChatCommandIdentifier('!');
+
             client.OnConnectionError += Connect_Error;
             client.OnConnected += Bot_Connected;
             client.OnJoinedChannel += Bot_Joined;
             client.OnUserJoined += User_Joined;
             client.OnMessageReceived += Message_Received;
+            client.OnChatCommandReceived += Command_Recieved;
+            client.OnNewSubscriber += New_Sub;
+            client.OnGiftedSubscription += Gift_Sub;
+            client.OnReSubscriber += Resub_Recieved;
+            client.OnChannelStateChanged += Channel_State;
 
             client.Connect();
+
+            api = new TwitchAPI();
+            api.Settings.ClientId = clientID;
+            api.Settings.AccessToken = token;
+            InfoCheck();
+
+            Elapsed = new System.Timers.Timer(3000);
+            Elapsed.Elapsed += CanSend;
+            Elapsed.Start();
         }
 
         #region Twitch Input
@@ -122,47 +177,111 @@ namespace ChitchatBot
                         TimedMessage.NewMessage(scheduled[j][0], scheduled[j][3], frequency, chance);
                     }
                 }
+                int count = 0;
+                foreach (TimedMessage msg in TimedMsgs)
+                {
+                    if (msg != null)
+                        count++;
+                }
+                string text = count + " scheduled message[s] started";
+                client.SendMessage(channel, text);
+            }
+
+            file = botPath + "Blacklist.txt";
+            if (!File.Exists(file))
+            {
+                using (StreamWriter sw = new StreamWriter(file))
+                    sw.Write("Replace this with words separated by commas");
             }
         }
         private void Bot_Joined(object sender, OnJoinedChannelArgs e)
         {
-
+            return;
         }
         private void User_Joined(object sender, OnUserJoinedArgs e)
         {
             string path = @"Users\" + e.Username;
             string file = @"\Data.txt";
-            WriteUserData(path, file);
+            WriteJoinData(path, file);
         }
         private void Message_Received(object sender, OnMessageReceivedArgs e)
         {
-            string message = e.ChatMessage.Message;
+            if (ViewChat)
+            {
+
+                ViewChat = false;
+            }
+        }
+        private void Command_Recieved(object sender, OnChatCommandReceivedArgs e)
+        {
+            string chatUser = e.Command.ChatMessage.Username;
+            string message = e.Command.ChatMessage.Message;
             string cmdsPath = botPath + "Commands.txt";
-            string userPath = @"Users\" + user + @"\Data.txt";
+            string userPath = @"Users\" + chatUser + @"\Data.txt";
 
             bool command = message.StartsWith("!");
-            bool bc = e.ChatMessage.IsBroadcaster;
-            bool permit = e.ChatMessage.IsBroadcaster || e.ChatMessage.IsModerator;
+            bool bc = e.Command.ChatMessage.IsBroadcaster;
+            bool mod = e.Command.ChatMessage.IsModerator;
 
-            if (command && (bc || UserPermit(userPath)))
+            string editCmd = userPref[0];   
+            string delCmd = userPref[1];    
+            string taskMsg = userPref[2];   
+            string delTask = userPref[3];   
+            string help = userPref[4];      
+            string choose = userPref[5];    
+            string permit = userPref[6];
+            string uptime = "!uptime";
+            string highlight = "!highlight";
+
+            cmdsList = new string[]
             {
-                string editCmd = "!edit";
-                string delCmd = "!delcmd";
-                string taskMsg = "!task";
-                string delTask = "!deltask";
+                editCmd,
+                delCmd,
+                taskMsg,
+                delTask,
+                help,
+                choose,
+                permit
+            };
+
+            if (bc || mod || UserPermit(userPath))
+            {
+                if (message.StartsWith(help) && CanWhisper)
+                {
+                    string cmdText = "[Command syntax] " + editCmd + "<name> <message> to add, " + editCmd + " <name> to modify, " + delCmd + " to remove";
+                    string taskText = "[Task syntax] " + taskMsg + " #<frequency in minutes> #<send chance per frequency> $<name> <message>, " + delTask + " <ID>/<name>";
+                    string miscText = "[Extra] " + choose + " <user> when interaction is active";
+                    client.SendWhisper(chatUser, cmdText);
+                    client.SendWhisper(chatUser, taskText);
+                    client.SendWhisper(chatUser, miscText);
+
+                    CanWhisper = false;
+                    return;
+                }
                 if (message.StartsWith(editCmd))
                 {
                     int startIndex = editCmd.Length + 1;
                     string substring = message.Substring(startIndex);
-                    int length = Math.Max(startIndex - substring.IndexOf(' '), substring.IndexOf(' ') - startIndex);
-                    WriteToFile(cmdsPath, ';', message.Substring(startIndex, length), substring.Substring(length), false);
+                    string name = substring.Substring(0, substring.IndexOf(' '));
+                    WriteToFile(cmdsPath, ';', name, substring.Substring(name.Length + 1), false);
+
+                    string text;
+                    if (FileCheck(cmdsPath, ';', name))
+                        text = "!" + name + " command modified";
+                    else
+                        text = "!" + name + "command created";
+                    client.SendMessage(channel, text);
+                    return;
                 }
                 if (message.StartsWith(delCmd))
                 {
                     int startIndex = delCmd.Length + 1;
-                    string substring = message.Substring(startIndex);
-                    int length = Math.Max(startIndex - substring.IndexOf(' '), substring.IndexOf(' ') - startIndex);
-                    WriteToFile(cmdsPath, ';', message.Substring(startIndex, length), string.Empty, false);
+                    string name = message.Substring(startIndex);
+                    WriteToFile(cmdsPath, ';', name, string.Empty, true);
+
+                    string text = "Command !" + name + " removed";
+                    client.SendMessage(channel, text);
+                    return;
                 }
                 if (message.StartsWith(taskMsg))
                 {
@@ -176,55 +295,266 @@ namespace ChitchatBot
 
                     int taskID = TimedMessage.NewMessage(name, msg, frequency, chance);
 
-                    string taskAlert = "@" + e.ChatMessage.Username + " Task ID: " + taskID + " created";
+                    string taskAlert = "@" + chatUser + " Task ID: " + taskID + " created";
                     client.SendMessage(channel, taskAlert);
+                    return;
                 }
                 if (message.StartsWith(delTask))
                 {
-                    string ID = message.Substring(delTask.Length + 1);
+                    string name = message.Substring(delTask.Length + 1);
                     int id;
-                    int.TryParse(ID, out id);
+                    int.TryParse(name, out id);
                     foreach (TimedMessage task in TimedMsgs)
                     {
-                        if (task != null && (task.name == ID || task.ID == id))
+                        if (task != null && (task.name == name || task.ID == id))
                         {
                             task.Dispose();
+
+                            string text = "Task ID: " + id + " removed";
+                            client.SendMessage(channel, text);
                             break;
                         }
                     }
+                    return;
+                }
+                if (message.StartsWith(choose) && begun)
+                {
+                    selected = message.Substring(choose.Length + 1);
+                    string text = "@" + selected + " please provide a " + verbType;
+                    client.SendMessage(channel, text);
+                    return;
+                }
+                if (bc && message.StartsWith(permit))
+                {
+                    string specified = message.Substring(permit.Length + 1);
+                    string path = @"Users\" + specified;
+                    string file = @"\Data.txt";
+
+                    if (File.Exists(path + file))
+                        WriteUserData(path, file, specified, DataType.Permit);
+                    else
+                    {
+                        string text = "User data not available";
+                        client.SendMessage(channel, text);
+                    }
+                    return;
+                }
+                if (message.StartsWith(highlight))
+                {
+                    var time = api.Streams.v5.GetUptimeAsync(channelID).Result;
+                    
+                    if (time.HasValue)
+                    {
+                        int hours = time.Value.Hours;
+                        int minutes = time.Value.Minutes;
+                        int seconds = time.Value.Seconds;
+
+                        string name = message.Substring(highlight.Length + 1);
+                        string timestamp = string.Format("{0}:{1}:{2}", new object[] { hours, minutes, seconds });
+
+                        using (StreamWriter sw = new StreamWriter(hlPath, true))
+                            sw.WriteLine(name + " " + timestamp);
+
+                        string text = chatUser + " created highlight named: " + name;
+                        client.SendMessage(channel, text);
+                    }
                 }
             }
-            if (command && FileCheck(cmdsPath, ';', message))
+            if (CanInteract)
             {
-                client.SendMessage(channel, MessageOutput(cmdsPath, ';', message));
+                if (message == uptime)
+                {
+                    GetUptime(chatUser);
+                }
+                if (FileCheck(cmdsPath, ';', message))
+                { 
+                    client.SendMessage(channel, MessageOutput(cmdsPath, ';', message, chatUser));
+                    CanInteract = false;
+                    return;
+                }
+            }
+            if (begun && selected == chatUser)
+            {
+                foreach (string s in cmdsList)
+                {
+                    if (message.Contains(s))
+                        return;
+                    else
+                    {
+                        string file = botPath + "Blacklist.txt";
+                        using (StreamReader sr = new StreamReader(file))
+                        {
+                            string[] list = sr.ReadToEnd().Split(';');
+                            foreach (string verb in list)
+                            {
+                                if (message.Contains(verb))
+                                {
+                                    string path = @"Users\" + chatUser;
+                                    string file2 = @"\Data.txt";
+                                    if (File.Exists(path + file2))
+                                        WriteUserData(path, file2, chatUser, DataType.Warning);
+
+                                    string notice = "@" + chatUser + " Invalid word was chosen, try with something else";
+                                    client.SendMessage(channel, notice);
+                                    return;
+                                }
+                            }
+                            selected = string.Empty;
+                            verbInput = message.Substring(1);
+                            input = true;
+
+                            string text = verbInput + " accepted as a " + verbType.ToLower();
+                            client.SendMessage(channel, text);
+                        }
+                        break;
+                    }
+                }
+                return;
             }
         }
-        #endregion
+        private void New_Sub(object sender, OnNewSubscriberArgs e)
+        {
+            string specified = e.Subscriber.DisplayName;
+            string path = @"Users\" + specified;
+            string file = @"\Data.txt";
 
+            if (!File.Exists(path + file))
+                WriteJoinData(path, file);
+
+            WriteUserData(path, file, specified, DataType.NewSub);
+        }
+        private void Gift_Sub(object sender, OnGiftedSubscriptionArgs e)
+        {
+            
+        }
+        private void Resub_Recieved(object sender, OnReSubscriberArgs e)
+        {
+            var speech = new SpeechSynthesizer();
+            speech.Speak(e.ReSubscriber.ResubMessage);
+            speech.Dispose();
+            speech = null;
+        }
+        private void Channel_State(object sender, OnChannelStateChangedArgs e)
+        {
+            
+        }
+        #endregion
+        private async Task InfoCheck()
+        {
+            CredentialCheckResponseModel u = await api.Settings.CheckCredentialsAsync();
+            TwitchLib.Api.Models.v5.Root.Root check = await api.Root.v5.GetRootAsync(auth.Substring(6), clientID);
+            TwitchLib.Api.Models.v5.Root.Root id = await api.Root.v5.GetRootAsync(token, clientID);
+
+            channelID = id.Token.UserId;
+
+            using (StreamWriter sw = new StreamWriter(botPath + @"\Debug.txt"))
+            {
+                sw.WriteLine(u.ResultMessage);
+                sw.WriteLine(" ");
+                sw.WriteLine("Valid? " + check.Token.Valid);
+                sw.WriteLine(check.Token.Username);
+                sw.WriteLine(check.Token.UserId);
+                sw.WriteLine(" ");
+                sw.WriteLine("Valid? " + id.Token.Valid);
+                sw.WriteLine(id.Token.Username);
+                sw.WriteLine(channelID);
+            }
+        }
+        private async Task GetUptime(string chatUser)
+        {
+            bool check = await api.Streams.v5.BroadcasterOnlineAsync(channelID);
+
+            var time = api.Streams.v5.GetUptimeAsync(channelID).Result;
+            
+            if (time.HasValue)
+            {
+                int hours = time.Value.Hours;
+                int minutes = time.Value.Minutes;
+                int seconds = time.Value.Seconds;
+
+                string online = "Stream has been online for ";
+                string text = string.Empty;
+                if (hours > 0)
+                    text += hours + " hours, ";
+                if (minutes > 0)
+                    text += minutes + " minutes and ";
+
+                text += seconds + " seconds";
+
+                client.SendMessage(channel, chatUser + " " + online + text);
+            }
+            else
+            {
+                string text = "Stream is offline";
+                client.SendMessage(channel, chatUser + " " + text);
+            }
+        }
+
+        private void CanSend(object sender, ElapsedEventArgs e)
+        {
+            CanInteract = true;
+            CanWhisper = true;
+        }
+
+        private void FileStart(string path, WriteType type)
+        {
+            if (!File.Exists(path))
+            {
+                switch (type)
+                {
+                    case WriteType.Pref:
+                        using (StreamWriter sw = new StreamWriter(path))
+                            foreach (string s in userPref)
+                                sw.Write(s + ";");
+                        break;
+                    case WriteType.Data:
+                        using (StreamWriter sw = new StreamWriter(path))
+                            sw.Write(" ");
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        private Thread storyThread;
         private string
             connectErr = "Connection values either invalid or there is another problem" + "\n",
             setupMsg = "File system setup complete for first time use" + "\n",
             newCmd = "Command has been created" + "\n",
             editCmd = "Command has been modified" + "\n";
+        private string verbInput;
+        private string verbType;
+        private string result;
+        private string[] verbs = new string[]
+        {
+            "NOUN",
+            "VERB",
+            "ADJ",
+            "ADVERB",
+            "NAME",
+            "PLACE",
+            "COLOR"
+        };
+        private bool input = true;
+        private bool begun;
 
         private void LogText(MessageType type)
         {
-            if (Log == null)
-                Log = new EventLog();
             /*
             switch (type)
             {
                 case MessageType.Error:
-                    Log.LogOutput.AppendText(connectErr);
+                    Log.AppendText(connectErr);
                     break;
                 case MessageType.Setup:
-                    Log.LogOutput.AppendText(setupMsg);
+                    Log.AppendText(setupMsg);
                     break;
                 case MessageType.NewCmd:
-                    Log.LogOutput.AppendText(newCmd);
+                    Log.AppendText(newCmd);
                     break;
                 case MessageType.Edit:
-                    Log.LogOutput.AppendText(editCmd);
+                    Log.AppendText(editCmd);
                     break;
                 default:
                     break;
@@ -232,10 +562,171 @@ namespace ChitchatBot
             */
         }
 
-        public void WriteUserData(string path, string file)
+        private void UpdateList()
+        {
+            NameList.Items.Clear();
+
+            var files = Directory.EnumerateFiles(botPath);
+            foreach (string s in files)
+            {
+                if (s.EndsWith(".text"))
+                {
+                    string name = s.Substring(s.IndexOf('\\') + 1);
+                    NameList.Items.Add(name.Substring(0, name.Length - 5));
+                }
+            }
+        }
+
+        #region Story functions
+        private void Button_Interact_Click(object sender, RoutedEventArgs e)
+        {
+            string text = TextBox_Interact.Text;
+            string name = Interact_Name.Text;
+            char separator = ';';
+            int count = 0;
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                foreach (string s in verbs)
+                {
+                    if (i == 0 || i <= Math.Max(text.Length - s.Length, s.Length - text.Length))
+                        if (text.Substring(i, s.Length) == s)
+                            count++;
+                }
+            }
+
+            string path = botPath + name + ".text";
+            using (StreamWriter sw = new StreamWriter(path))
+                sw.Write(name + separator + count + separator + text);
+
+            UpdateList();
+        }
+        private void Button_Check_Click(object sender, RoutedEventArgs e)
+        {
+            string name = Interact_Name.Text;
+            string path = botPath + name + ".text";
+            if (File.Exists(path))
+            {
+                using (StreamReader sr = new StreamReader(path))
+                    TextBox_Interact.Text = sr.ReadToEnd().Split(';')[2];
+            }
+        }
+        private void Begin_Click(object sender, RoutedEventArgs e)
+        {
+            begun = true;
+            string name = Interact_Name.Text;
+            string path = botPath + name + ".text";
+            string story = string.Empty;
+            bool init = false;
+            int total = 0;
+
+            if (File.Exists(path))
+            {
+                using (StreamReader sr = new StreamReader(path))
+                {
+                    var lines = sr.ReadToEnd().Split(';');
+                    int.TryParse(lines[1], out total);
+                    story = lines[2];
+                }
+                result = string.Empty;
+
+                string text = "Story entitled " + name + " has begun with " + total + " word entries";
+                client.SendMessage(channel, text);
+
+                if (storyThread != null)
+                    storyThread.Abort();
+
+                storyThread = new Thread(() =>
+                {
+                    int length = story.Length;
+                    int count = 0;
+
+                    while (count < length)
+                    {
+                        foreach (string s in verbs)
+                        {
+                            if ((count == 0 || count <= Math.Max(story.Length - s.Length, s.Length - story.Length)) && story.Substring(count, s.Length) == s)
+                            { }
+                                //Info.Block_Verbs.Text += s + ", ";
+                        }
+                        count++;
+                    }
+
+                    count = 0;
+                    while (count < length)
+                    {
+                        //Info.Block_Work.Text = result;
+                        
+                        foreach (string s in verbs)
+                        {
+                            if ((count == 0 || count <= Math.Max(story.Length - s.Length, s.Length - story.Length)) && story.Substring(count, s.Length) == s)
+                            {
+                                input = false;
+                                verbType = s;
+                                count += s.Length;
+                                break;
+                            }
+                        }
+                        while (!input)
+                        {
+                            Thread.Sleep(300);
+                        }
+                        result += verbInput;
+                        verbInput = string.Empty;
+
+                        if (count < length)
+                            result += story.Substring(count, 1);
+
+                        count++;
+                    }
+                    begun = false;
+                    var tts = new SpeechSynthesizer();
+                    tts.Speak(result);
+                    tts.Dispose();
+                //  TextBox_Interact.Text = result;
+                });
+                storyThread.SetApartmentState(ApartmentState.STA);
+                storyThread.Start();
+            }
+        }
+        private void Button_Input_Click(object sender, RoutedEventArgs e)
+        {
+            verbInput = Interact_Name.Text;
+            input = true;
+        }
+        #endregion
+
+        private void Button_Prefer_Click(object sender, RoutedEventArgs e)
+        {
+            var window = new Preferences();
+            window.Show();
+        }
+
+        private void On_ViewClick(object sender, RoutedEventArgs e)
+        {
+            ViewChat = true;
+        }
+
+        private void Select_Story(object sender, SelectionChangedEventArgs e)
+        {
+            if (NameList.SelectedItem != null)
+            {
+                string name = NameList.SelectedItem.ToString();
+                string path = botPath + name + ".text";
+
+                if (File.Exists(path))
+                {
+                    using (StreamReader sr = new StreamReader(path))
+                        TextBox_Interact.Text = sr.ReadToEnd().Split(';')[2];
+                }
+                Interact_Name.Text = name;
+            }
+        }
+
+        public void WriteJoinData(string path, string file)
         {
             string date = DateTime.Today.ToShortDateString();
-
+            
             if (!Directory.Exists(path))
                 Directory.CreateDirectory(path);
             if (!File.Exists(path + file))
@@ -244,16 +735,17 @@ namespace ChitchatBot
                 {
                     string[] lines = new string[]
                     {
-                        "<date> :" + date,
-                        "<first> :" + date,
-                        "<permit> :false;",
-                        "<count> :0",
-                        "<currency> :0",
+                        "<date> :" + date   + ";",
+                        "<first> :" + date  + ";",
+                        "<sub> : false"     + ";",
+                        "<permit> :false"   + ";",
+                        "<count> :1"        + ";",
+                        "<currency> :0"     + ";",
                         "<warning> :0"
                     };
 
                     foreach (string s in lines)
-                        sw.Write(s + "\n");
+                        sw.Write(s + sw.NewLine);
                 }
             }
             else
@@ -262,34 +754,141 @@ namespace ChitchatBot
                 string[] lines;
                 using (StreamReader sr = new StreamReader(path + file))
                 {
-                    lines = sr.ReadToEnd().Split('\r');
-                    string s = lines.TakeWhile(line => line.StartsWith("<date>")).ToString();
+                    lines = sr.ReadToEnd().Split(';');
+                    string s = string.Empty;
+                    foreach (string select in lines)
+                    {
+                        if (select.StartsWith("<date>"))
+                        {
+                            s = select;
+                            break;
+                        }
+                    }
                     oldDate = s.Substring(s.IndexOf(':') + 1);
                 }
                 if (date != oldDate)
                 {
-                    using (StreamReader sr = new StreamReader(path + file))
-                        lines = sr.ReadToEnd().Split('\r');
-                    using (StreamWriter sw = new StreamWriter(path + file))
+                    WriteUserData(path, file, string.Empty, DataType.Joined);
+                }
+            }
+        }
+
+        public void WriteUserData(string path, string file, string chatUser, DataType type)
+        {
+            string date = DateTime.Today.ToShortDateString();
+            string[] lines;
+            string[] ids = new string[]
+            {
+                "date",
+                "first",
+                "sub",
+                "permit",
+                "count",
+                "currency",
+                "warning"
+            };
+
+            using (StreamReader sr = new StreamReader(path + file))
+                lines = sr.ReadToEnd().Split(';');
+            using (StreamWriter sw = new StreamWriter(path + file))
+            {
+                if (type == DataType.Joined)
+                {
+                    for (int i = 0; i < lines.Length; i++)
                     {
+                        int count;
+                        if (lines[i].Contains("<count>"))
+                        {
+                            int.TryParse(lines[i].Substring(lines[i].IndexOf(':') + 1), out count);
+                            count++;
+                            lines[i] = "<count> :" + count;
+                        }
+                        if (lines[i].Contains("<date>"))
+                            lines[i] = "<date> :" + date;
+                    }
+                }
+                else if (type == DataType.Permit || type == DataType.NewSub)
+                {
+                    string input = string.Empty;
+                    switch (type)
+                    {
+                        case DataType.Permit:
+                            input = "<permit>";
+                            break;
+                        case DataType.NewSub:
+                            input = "<sub>";
+                            break;
+                        default:
+                            break;
+                    }
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        bool allow;
+                        if (lines[i].Contains(input))
+                        {
+                            bool.TryParse(lines[i].Substring(lines[i].IndexOf(':') + 1), out allow);
+                            allow = !allow;
+                            lines[i] = input + " :" + allow;
+
+                            if (type == DataType.Permit)
+                            {
+                                string differ = allow ? "yes" : "no";
+                                string text = "@" + chatUser + " permissions changed to: " + differ;
+                                client.SendMessage(channel, text);
+                            }
+                            else if (type == DataType.NewSub)
+                            {
+                                string text = "Welcome " + chatUser + " to the sub group!";
+                                client.SendMessage(channel, text);
+                            }
+                            break;
+                        }
+                    }
+                }
+                else if (type == DataType.Warning)
+                {
+                    int count = 0;
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        if (lines[i].Contains("<warning>"))
+                        {
+                            int.TryParse(lines[i].Substring(lines[i].IndexOf(':') + 1), out count);
+                            lines[i] = "<warning> :" + (count + 1);
+                        }
+                    }
+                    if (count == 10)
+                    {
+                        var time = new TimeSpan(0, 0, 10);
+                        client.TimeoutUser(chatUser, time, "You've reached the warning threshold, try to be more careful");
+
                         for (int i = 0; i < lines.Length; i++)
                         {
-                            int count;
-                            if (lines[i].Contains("<count>"))
-                            {
-                                int.TryParse(lines[i].Substring(lines[i].IndexOf(':') + 1), out count);
-                                count++;
-                                lines[i] = "<count> :" + count;
-                            }
-                            if (lines[i].Contains("<date>"))
-                                lines[i] = "<date> :" + date;
+                            if (lines[i].Contains("<warning>"))
+                                lines[i] = "<warning> :0";
                         }
-                        foreach (string s in lines)
+                    }
+                }
+                foreach (string s in lines)
+                {
+                    foreach (string id in ids)
+                    {
+                        if (s.Contains(id) && id != "warning")
                         {
-                            if (s.Contains("\n"))
-                                sw.Write(s.Substring(s.LastIndexOf('\n')) + 1 + sw.NewLine);
+                            if (s.Contains("\r\n"))
+                                sw.Write(s.Substring(2) + ";" + sw.NewLine);
                             else
-                                sw.Write(s + sw.NewLine);
+                                sw.Write(s + ";" + sw.NewLine);
+                            break;
+                        }
+                        if (id == "warning" && type != DataType.Warning)
+                        {
+                            sw.Write(s.Substring(2));
+                            break;
+                        }
+                        if (id == "warning" && type == DataType.Warning)
+                        {
+                            sw.Write(s);
+                            break;
                         }
                     }
                 }
@@ -301,7 +900,7 @@ namespace ChitchatBot
                 using (StreamWriter sw = new StreamWriter(file))
                     sw.Write(";");
 
-            string command = "!" + name + message;
+            string command = "!" + name + " " + message;
             string[] lines;
             using (StreamReader sr = new StreamReader(file))
                 lines = sr.ReadToEnd().Split(separator);
@@ -318,13 +917,11 @@ namespace ChitchatBot
                     if (line.Contains("!" + name))
                     {
                         lines[i] = command;
-                        LogText(MessageType.Edit);
                         break;
                     }
                     if (line.Length < 5)
                     {
                         lines[i] = command;
-                        LogText(MessageType.NewCmd);
                         break;
                     }
                 }
@@ -371,7 +968,7 @@ namespace ChitchatBot
             }
             return false;
         }
-        public string MessageOutput(string file, char separator, string name)
+        public string MessageOutput(string file, char separator, string name, string user)
         {
             string[] lines;
             using (StreamReader sr = new StreamReader(file))
@@ -379,7 +976,25 @@ namespace ChitchatBot
             foreach (string s in lines)
             {
                 if (s.Contains(name))
-                    return s.Substring(name.Length + 1);
+                {
+                    if (s.Contains("$user"))
+                    {
+                        string insert = "$user";
+                        string text = s.Insert(s.IndexOf(insert), user);
+                        text = text.Substring(0, text.IndexOf(insert)) + text.Substring(text.IndexOf(insert) + insert.Length);
+                        if (text.Contains("\n"))
+                            return text.Substring(text.IndexOf('\n') + name.Length + 2);
+                        else
+                            return text.Substring(name.Length + 1);
+                    }
+                    else
+                    {
+                        if (s.Contains("\n"))
+                            return s.Substring(s.IndexOf('\n') + name.Length + 2);
+                        else
+                            return s.Substring(name.Length + 1);
+                    }
+                }
             }
             return string.Empty;
         }
@@ -392,6 +1007,18 @@ namespace ChitchatBot
         NewCmd,
         Edit
     }
+    public enum DataType
+    {
+        Joined,
+        Permit,
+        Warning,
+        NewSub
+    }
+    public enum WriteType
+    {
+        Pref,
+        Data
+    }
 
     public class TimedMessage : IDisposable
     {
@@ -401,7 +1028,7 @@ namespace ChitchatBot
         public int frequency;
         public int chance;
         public int ID;
-        private Timer schedule;
+        private System.Timers.Timer schedule;
         private static MainWindow Base;
         private Random rand
         {
@@ -422,16 +1049,19 @@ namespace ChitchatBot
                     break;
                 }
             }
-            MainWindow.TimedMsgs[num] = new TimedMessage();
             foreach (TimedMessage task in MainWindow.TimedMsgs)
             {
                 if (task != null && task.name == name)
                 {
                     num = task.ID;
                     task.Dispose();
+
+                    string text = "Task ID: " + task.ID + " replaced";
+                    MainWindow.client.SendMessage(Base.channel, text);
                     break;
                 }
             }
+            MainWindow.TimedMsgs[num] = new TimedMessage();
             MainWindow.TimedMsgs[num].name = name;
             MainWindow.TimedMsgs[num].message = message;
             MainWindow.TimedMsgs[num].frequency = frequency;
@@ -454,11 +1084,10 @@ namespace ChitchatBot
 
         private void Setup()
         {
-            schedule = new Timer();
-            schedule.Interval = frequency * 600;
-            schedule.BeginInit();
-            schedule.Start();
+            schedule = new System.Timers.Timer();
+            schedule.Interval = frequency * 60000;
             schedule.Elapsed += SendMessage;
+            schedule.Start();
         }
         private void SendMessage(object sender, ElapsedEventArgs e)
         {
