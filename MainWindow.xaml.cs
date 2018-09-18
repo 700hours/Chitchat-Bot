@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Speech.Synthesis;
 using System.Text;
 using System.Timers;
@@ -71,13 +72,13 @@ namespace ChitchatBot
         private bool CanWhisper = true;
         private bool ViewChat;
         public static TimedMessage[] TimedMsgs = new TimedMessage[100];
+        public static ActiveUsers[] activeUsers = new ActiveUsers[1001];
         private System.Timers.Timer Elapsed;
         public static TwitchClient client;
         public static TwitchAPI api;
         private void On_Load(object sender, RoutedEventArgs e)
         {
             string path = "Users";
-            botPath = "Bot_" + user + @"\";
             if (!Directory.Exists(path))
                 Directory.CreateDirectory(path);
             if (!Directory.Exists("Bot_" + user))
@@ -146,6 +147,7 @@ namespace ChitchatBot
         }
         private void Bot_Connected(object sender, OnConnectedArgs e)
         {
+            botPath = "Bot_" + user + @"\";
             string file = botPath + "Scheduled.txt";
             string[] lines;
             string[][] scheduled = new string[101][];
@@ -191,7 +193,7 @@ namespace ChitchatBot
             if (!File.Exists(file))
             {
                 using (StreamWriter sw = new StreamWriter(file))
-                    sw.Write("Replace this with words separated by commas");
+                    sw.Write("Replace this with words or phrases separated by commas with no spaces inbetween");
             }
         }
         private void Bot_Joined(object sender, OnJoinedChannelArgs e)
@@ -206,9 +208,10 @@ namespace ChitchatBot
         }
         private void Message_Received(object sender, OnMessageReceivedArgs e)
         {
+            ActiveUsers.NewUser(e.ChatMessage.Username, 60);
+
             if (ViewChat)
             {
-
                 ViewChat = false;
             }
         }
@@ -319,9 +322,14 @@ namespace ChitchatBot
                 }
                 if (message.StartsWith(choose) && begun)
                 {
-                    selected = message.Substring(choose.Length + 1);
-                    string text = "@" + selected + " please provide a " + verbType;
-                    client.SendMessage(channel, text);
+                    if (message.Substring(choose.Length + 1) != "random")
+                    {
+                        selected = message.Substring(choose.Length + 1);
+                        string text = "@" + selected + " please provide a " + verbType;
+                        client.SendMessage(channel, text);
+                    }
+                    else
+                        SelectAtRandom();
                     return;
                 }
                 if (bc && message.StartsWith(permit))
@@ -358,6 +366,7 @@ namespace ChitchatBot
                         string text = chatUser + " created highlight named: " + name;
                         client.SendMessage(channel, text);
                     }
+                    return;
                 }
             }
             if (CanInteract)
@@ -365,6 +374,7 @@ namespace ChitchatBot
                 if (message == uptime)
                 {
                     GetUptime(chatUser);
+                    return;
                 }
                 if (FileCheck(cmdsPath, ';', message))
                 { 
@@ -384,7 +394,7 @@ namespace ChitchatBot
                         string file = botPath + "Blacklist.txt";
                         using (StreamReader sr = new StreamReader(file))
                         {
-                            string[] list = sr.ReadToEnd().Split(';');
+                            string[] list = sr.ReadToEnd().Split(',');
                             foreach (string verb in list)
                             {
                                 if (message.Contains(verb))
@@ -399,16 +409,16 @@ namespace ChitchatBot
                                     return;
                                 }
                             }
-                            selected = string.Empty;
-                            verbInput = message.Substring(1);
-                            input = true;
-
-                            string text = verbInput + " accepted as a " + verbType.ToLower();
-                            client.SendMessage(channel, text);
                         }
                         break;
                     }
                 }
+                selected = string.Empty;
+                verbInput = message.Substring(1);
+                input = true;
+
+                string text = verbInput + " accepted as a " + verbType.ToLower();
+                client.SendMessage(channel, text);
                 return;
             }
         }
@@ -489,6 +499,26 @@ namespace ChitchatBot
                 client.SendMessage(channel, chatUser + " " + text);
             }
         }
+        public async Task SelectAtRandom()
+        {
+            await Task.Run(new Action(() =>
+            {
+                int count = ActiveUsers.Organize();
+                int rand = new Random().Next(count);
+                string previous = selected;
+                while (true)
+                {
+                    if (activeUsers[rand] != null)
+                        selected = activeUsers[rand].chatUser;
+
+                    rand = new Random().Next(count);
+                    if (selected != previous)
+                        break;
+                }
+                string text = "@" + selected + " please provide a " + verbType;
+                client.SendMessage(channel, text);
+            }));
+        }
 
         private void CanSend(object sender, ElapsedEventArgs e)
         {
@@ -509,7 +539,7 @@ namespace ChitchatBot
                         break;
                     case WriteType.Data:
                         using (StreamWriter sw = new StreamWriter(path))
-                            sw.Write(" ");
+                            sw.Write("\r");
                         break;
                     default:
                         break;
@@ -1145,6 +1175,93 @@ namespace ChitchatBot
                         sw.Write(s + separator + sw.NewLine);
                 }
             }
+        }
+    }
+
+    public class ActiveUsers : IDisposable
+    {
+        public string chatUser;
+        public bool active;
+        public int ID;
+        public int seconds;
+        private System.Timers.Timer timer;
+        public static int NewUser(string user, int interval)
+        {
+            int num = 1001;
+            var users = MainWindow.activeUsers;
+            foreach (ActiveUsers active in users)
+            {
+                if (active != null && active.chatUser == user)
+                {
+                    active.Activate();
+                    return num;
+                }
+            }
+            for (int i = 0; i < users.Length; i++)
+            {
+                if (users[i] == null || !users[i].active)
+                {
+                    num = i;
+                    break;
+                }
+            }
+            MainWindow.activeUsers[num] = new ActiveUsers();
+            MainWindow.activeUsers[num].chatUser = user;
+            MainWindow.activeUsers[num].active = true;
+            MainWindow.activeUsers[num].ID = num;
+            MainWindow.activeUsers[num].seconds = interval;
+            MainWindow.activeUsers[num].Activate();
+            return num;
+        }
+        public void Dispose()
+        {
+            MainWindow.activeUsers[ID].active = false;
+            MainWindow.activeUsers[ID] = null;
+        }
+        public static int Organize()
+        {
+            int count = 0;
+            var users = MainWindow.activeUsers;
+            foreach (ActiveUsers user in users)
+            {
+                if (user != null)
+                {
+                    int num = Math.Max(user.ID - 1, 0);
+                    if (users[num] == null)
+                    {
+                        users[num] = users[user.ID];
+                        users[user.ID].Dispose();
+                    }
+                    count++;
+                }
+            }
+            MainWindow.activeUsers = users;
+            return count;
+        }
+        private void Activate()
+        {
+            if (timer == null)
+            {
+                timer = new System.Timers.Timer();
+                timer.Interval = 1000 * seconds;
+                timer.Start();
+                timer.Elapsed += Cycle;
+            }
+            else
+            {
+                timer.Stop();
+                timer.Dispose();
+                timer = new System.Timers.Timer();
+                timer.Interval = 1000 * seconds;
+                timer.Start();
+                timer.Elapsed += Cycle;
+            }
+        }
+        private void Cycle(object sender, ElapsedEventArgs e)
+        {
+            timer.Stop();
+            timer.Dispose();
+            MainWindow.activeUsers[ID].Dispose();
         }
     }
 }
